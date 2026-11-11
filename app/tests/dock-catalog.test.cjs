@@ -150,6 +150,21 @@ assert.equal(catalog.parse('H|bad;command').homeApp, null);
     assert.equal(b.entries[2].icon, '/opt/share/webappservice/apps_icon/all/yt/224x224.png', 'completed apps keep their registry icon');
     assert.ok(b.skipped.some(s => s.item === 's/livetv@HDMI3'), 'an unknown live source is reported, not fatal');
 }
+// Disabled apps (app_disable in the package database) get no tile: Samsung's Home row can still list them, but they do not start.
+{
+    const p = catalog.parse(['F|csfs', 'O|d/webapp@aaa', 'O|d/webapp@pv',
+        'R|' + hex('aaa') + '|' + hex('Netflix') + '|' + hex('org.tizen.netflix-app') + '|0',
+        'R|' + hex('pv') + '|' + hex('Prime Video') + '|' + hex('org.tizen.primevideo') + '|0',
+        'D|' + hex('org.tizen.primevideo'), 'D|nothex'].join('\n'));
+    assert.deepEqual(Object.keys(p.disabled), ['org.tizen.primevideo'], 'a disabled line that is not hex is skipped');
+    const b = catalog.build(p, {});
+    assert.deepEqual(b.entries.map(e => e.appId), ['org.tizen.netflix-app']);
+    assert.deepEqual(b.skipped.map(s => s.item + ':' + s.reason), ['d/webapp@pv:Disabled']);
+    const media = catalog.parse(['F|media', 'R|' + hex('pv') + '|' + hex('Prime Video') + '|' + hex('org.tizen.primevideo') + '|0',
+        'R|' + hex('br') + '|' + hex('Browser') + '|' + hex('org.tizen.browser') + '|0', 'D|' + hex('org.tizen.primevideo')].join('\n'));
+    assert.deepEqual(catalog.build(media, {}).entries.map(e => e.appId), ['org.tizen.browser'], 'the registry fill-in leaves them out too');
+    assert.ok(catalog.script().includes("SELECT 'D|'||hex(app_id) FROM package_app_info WHERE app_disable='true';"), 'the script reads the disabled apps');
+}
 // A csfs row keeps today's behaviour: nothing is appended from the registry.
 {
     const p = catalog.parse(['F|csfs', 'O|d/webapp@aaa', 'R|' + hex('aaa') + '|' + hex('Netflix') + '|' + hex('org.tizen.netflix-app') + '|0',
