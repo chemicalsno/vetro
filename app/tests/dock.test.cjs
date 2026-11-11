@@ -68,7 +68,13 @@ function fixture(options) {
     assert.ok(/tr "\\0" " " < \/proc\/\$p\/cmdline/.test(f.tv.started) && f.tv.started.includes('grep -q tvlauncher-dotnet.dll'), 'only a pid that is our dll is killed');
     assert.ok(/systemd-run --unit=vetro-dock --collect .*-p KillSignal=SIGKILL .*\/usr\/bin\/env HOME=\/home\/owner .*\/usr\/bin\/dotnet tvlauncher-dotnet\.dll/.test(f.tv.started),
         'the dock runs as its own systemd unit, outside the root agent\'s cgroup (sdbd stops at standby and kills it): ' + f.tv.started);
-    assert.ok(f.tv.started.indexOf('systemctl stop vetro-dock.service') < f.tv.started.indexOf('systemd-run'), 'a previous unit is stopped first');
+    assert.ok(f.tv.started.indexOf('systemctl stop --no-block vetro-dock.service') < f.tv.started.indexOf('systemd-run'), 'a previous unit is stopped first');
+    assert.ok(f.tv.started.includes('{ systemctl stop --no-block vetro-dock.service || systemctl stop vetro-dock.service; } >/dev/null 2>&1 || true;') &&
+        f.tv.started.includes('p=$(cat /home/owner/tvlauncher.pid 2>/dev/null || true);'), 'no stop line can fail: the rollback runs them under set -e');
+    assert.ok(f.tv.started.includes('{ systemctl stop --no-block vetro-dock.service || systemctl stop vetro-dock.service; }'),
+        'the stop does not wait for systemd over D-Bus (25 s on a Tizen 8 TV), with the plain stop as the fallback: ' + f.tv.started);
+    assert.ok(/end=\$\(\( \$\(date \+%s\) \+ 3 \)\); while \[ "\$\(date \+%s\)" -lt "\$end" \]; do case "\$\(systemctl is-active vetro-dock\.service[^\n]*active\|activating\|deactivating\) sleep 0\.1/.test(f.tv.started),
+        'the unit gets at most 3 s, by the clock, to go away: ' + f.tv.started);
     assert.ok(/systemd-run [^\n]*\|\| [^\n]*setsid nohup \/usr\/bin\/dotnet/.test(f.tv.started), 'the detached start remains as the fallback');
     assert.equal(f.tv.csfs, false, 'Samsung Home closed once the dock is up');
     assert.equal(JSON.parse(fs.readFileSync(path.join(f.tmp, 'state.json'), 'utf8')).enabled, true);

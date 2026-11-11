@@ -255,9 +255,18 @@ Dock.prototype.startScript = function () {
 };
 
 // The dock ignores SIGTERM, so it takes kill -9; only a pid that is really our dll is touched.
+// A plain `systemctl stop` waits for systemd's answer over D-Bus, and on a Tizen 8 TV that answer never comes: the
+// call gives up after 25 s, past the start and stop time limits here, although the dock itself is gone at once
+// (KillSignal=SIGKILL). So the stop is queued without waiting, and the unit gets up to 3 s to go away, because
+// systemd-run refuses a unit name that still exists and the start would fall back to the detached dock.
+// A systemctl that rejects --no-block gets the plain stop, and the wait ends after 3 s even if each check is slow.
+// No line may fail: the updater's rollback runs these lines under `set -e`, and a dock that is already stopped
+// (unit not loaded, no pid file) must not end the rollback halfway.
 Dock.prototype.stopLines = function () {
-    return 'systemctl stop ' + UNIT + '.service >/dev/null 2>&1; ' +
-        'p=$(cat ' + PID_FILE + ' 2>/dev/null); if [ -n "$p" ] && tr "\\0" " " < /proc/$p/cmdline 2>/dev/null | grep -q ' + DLL +
+    return '{ systemctl stop --no-block ' + UNIT + '.service || systemctl stop ' + UNIT + '.service; } >/dev/null 2>&1 || true; ' +
+        'end=$(( $(date +%s) + 3 )); while [ "$(date +%s)" -lt "$end" ]; do case "$(systemctl is-active ' + UNIT + '.service 2>/dev/null)" in ' +
+        'active|activating|deactivating) sleep 0.1;; *) break;; esac; done; ' +
+        'p=$(cat ' + PID_FILE + ' 2>/dev/null || true); if [ -n "$p" ] && tr "\\0" " " < /proc/$p/cmdline 2>/dev/null | grep -q ' + DLL +
         '; then kill -9 $p; sleep 0.3; fi; rm -f ' + PID_FILE;
 };
 
