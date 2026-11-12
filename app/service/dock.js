@@ -117,9 +117,10 @@ Dock.prototype.readState = function () {
             customSince: s && typeof s.customSince === 'number' ? s.customSince : null,
             customHomeDisabled: s && s.customHomeDisabled === true,
             showHomeSources: s && typeof s.showHomeSources === 'boolean' ? s.showHomeSources : this.legacyHomeSources,
-            useSourceImages: s && typeof s.useSourceImages === 'boolean' ? s.useSourceImages : this.legacySourceImages};
+            useSourceImages: s && typeof s.useSourceImages === 'boolean' ? s.useSourceImages : this.legacySourceImages,
+            fillFromRegistry: !(s && s.fillFromRegistry === false)};
     } catch (e) { return {enabled: false, since: null, fixTizenTube: false, noMotion: false, autorunWas: null, customApp: null, customSince: null, customHomeDisabled: false,
-        showHomeSources: this.legacyHomeSources, useSourceImages: this.legacySourceImages}; }
+        showHomeSources: this.legacyHomeSources, useSourceImages: this.legacySourceImages, fillFromRegistry: true}; }
 };
 
 // Source-option migration must never overwrite an unreadable or malformed existing state.
@@ -218,7 +219,7 @@ Dock.prototype.status = function (options) {
 Dock.prototype.statusNow = function () {
     var self = this, state = this.readState();
     var base = {installed: this.installed(), enabled: state.enabled, since: state.since, busy: this.busy,
-        error: this.lastError, failures: this.failures, apps: this.lastCatalog, fixTizenTube: state.fixTizenTube, noMotion: state.noMotion, showHomeSources: state.showHomeSources, useSourceImages: state.useSourceImages, autorunSwitchedOff: state.autorunWas === 1,
+        error: this.lastError, failures: this.failures, apps: this.lastCatalog, fixTizenTube: state.fixTizenTube, noMotion: state.noMotion, showHomeSources: state.showHomeSources, useSourceImages: state.useSourceImages, fillFromRegistry: state.fillFromRegistry, autorunSwitchedOff: state.autorunWas === 1,
         mode: state.customApp ? 'custom' : state.enabled ? 'vetro' : 'off', customApp: state.customApp, customSince: state.customSince,
         customHomeDisabled: state.customHomeDisabled,
         entries: this.entries(), inputs: this.inputEntries()};
@@ -266,10 +267,11 @@ Dock.prototype.writeCatalog = function () {
     var state = this.readState();
     // Persist defaults/migration before generating lists, so a fresh preview cannot be mistaken for legacy data later.
     try { this.validateSourcePreferenceState(); this.patchState({showHomeSources: state.showHomeSources, useSourceImages: state.useSourceImages}); } catch (e) { return Promise.reject(e); }
-    return catalog.load(this.execute, {fixTizenTube: state.fixTizenTube, showHomeSources: state.showHomeSources, useSourceImages: state.useSourceImages}).then(function (c) {
+    return catalog.load(this.execute, {fixTizenTube: state.fixTizenTube, showHomeSources: state.showHomeSources, useSourceImages: state.useSourceImages,
+        fillFromRegistry: state.fillFromRegistry}).then(function (c) {
         try { atomicFile.write(fs, self.appsFile, c.tsv); atomicFile.write(fs, self.inputsFile, c.inputsTsv); }
         catch (e) { throw new Error('The app list could not be saved: ' + e.message); }
-        self.lastCatalog = {count: c.count, skipped: c.skipped, at: self.now()};
+        self.lastCatalog = {count: c.count, skipped: c.skipped, rowFrom: c.rowFrom, at: self.now()};
         return c;
     });
 };
@@ -504,10 +506,10 @@ Dock.prototype.inputEntries = function () {
     try { return parseTsv(fs.readFileSync(this.inputListPath(), 'utf8')); } catch (e) { return []; }
 };
 
-// Like Fix TizenTube, source switches save a boolean and rebuild the launcher list.
+// Like Fix TizenTube, the source switches and the fill-in switch save a boolean and rebuild the launcher list.
 Dock.prototype.setSourceOption = function (key, on) {
     var self = this;
-    if (SOURCE_OPTION_KEYS.indexOf(key) < 0 || typeof on !== 'boolean') return Promise.reject(new Error('Invalid source option'));
+    if ((SOURCE_OPTION_KEYS.indexOf(key) < 0 && key !== 'fillFromRegistry') || typeof on !== 'boolean') return Promise.reject(new Error('Invalid source option'));
     if (this.busy) return Promise.reject(new Error('Another launcher change is in progress'));
     try { this.validateSourcePreferenceState(); } catch (e) { return Promise.reject(e); }
     var before = this.readState();

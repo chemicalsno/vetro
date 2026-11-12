@@ -193,7 +193,8 @@ function build(parsed, options) {
     });
     // Without a csfs row (the 2022 Home), the row above is at best the "recent" strip: every other visible
     // app of the registry follows, by title, so the dock shows the same apps as the Home's app list.
-    if (parsed.rowFrom !== 'csfs') {
+    // On TVs whose row is complete, the owner can turn this off (fillFromRegistry) to keep only the row.
+    if (parsed.rowFrom !== 'csfs' && options.fillFromRegistry !== false) {
         var present = {}, inOrder = {};
         entries.forEach(function (e) { present[e.appId] = true; });
         parsed.order.forEach(function (item) { if (item.indexOf('d/webapp@') === 0) inOrder[item.slice(9)] = true; });
@@ -262,7 +263,7 @@ function load(execute, options) {
         var filteredSources = options.showHomeSources !== true && parsed.order.some(function (entry) { return /^s\/source\.layer\.hdmi@HDMI[1-4]$/.test(entry); });
         if (!built.entries.length && !filteredSources) throw new Error('None of the Home row apps could be matched in the registry');
         return existing(execute, built).then(function (b) {
-            return {tsv: tsv(b), inputsTsv: inputsTsv(b), count: b.entries.length, skipped: b.skipped};
+            return {tsv: tsv(b), inputsTsv: inputsTsv(b), count: b.entries.length, skipped: b.skipped, rowFrom: parsed.rowFrom || null};
         });
     });
 }

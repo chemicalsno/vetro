@@ -15,7 +15,7 @@ const sandbox = {document: {getElementById: el, querySelectorAll: () => [], quer
         else if (url === '/dock') {
             if (body.action === 'enable') dock = Object.assign({}, dock, {enabled: true, running: true, apps: {count: 11, skipped: [{item: 'd/webapp@gone', reason: 'Not installed'}]}, log: 'elm_run'});
             if (body.action === 'fixTizenTube') dock = Object.assign({}, dock, {fixTizenTube: body.on});
-            if (body.action === 'showHomeSources' || body.action === 'useSourceImages') dock=Object.assign({},dock,{[body.action]:body.on});
+            if (body.action === 'showHomeSources' || body.action === 'useSourceImages' || body.action === 'fillFromRegistry') dock=Object.assign({},dock,{[body.action]:body.on});
             if (body.action === 'disable') dock = Object.assign({}, dock, {enabled: false, running: false});
             if (body.action === 'enableCustom') dock = Object.assign({}, dock, {mode: 'custom', customApp: body.appId, running: true});
             if (body.action === 'disableCustom') dock = Object.assign({}, dock, {mode: 'off', customApp: null, running: false});
@@ -148,6 +148,19 @@ const tick = () => new Promise(r => setImmediate(r));
     await el('dock').onchange({target:{dataset:{dockSourceOption:'showHomeSources'},checked:false}}); await tick();
     assert.equal(sandbox.dockData.showHomeSources,false);
     assert.equal(sandbox.dockData.useSourceImages,true,'turning the source filter off leaves artwork choice intact');
+    // Apps outside the Home row: shown only for a row that is not from csfs, or while it is off.
+    sandbox.dockData=Object.assign({},dock,{apps:{count:3,skipped:[],rowFrom:'csfs'},fillFromRegistry:true}); sandbox.renderDock();
+    assert.doesNotMatch(el('dockBody').innerHTML,/Apps outside the Home row/,'a csfs row never gets other apps');
+    sandbox.dockData=Object.assign({},dock,{apps:{count:3,skipped:[]},fillFromRegistry:true}); sandbox.renderDock();
+    assert.doesNotMatch(el('dockBody').innerHTML,/Apps outside the Home row/,'unknown origin: hidden');
+    sandbox.dockData=Object.assign({},dock,{apps:{count:3,skipped:[],rowFrom:'csfs'},fillFromRegistry:false}); sandbox.renderDock();
+    assert.match(el('dockBody').innerHTML,/Apps outside the Home row/,'while off it stays reachable');
+    dock=Object.assign({},dock,{apps:{count:3,skipped:[],rowFrom:'media'},fillFromRegistry:true});
+    await sandbox.loadDock();
+    assert.match(el('dockBody').innerHTML,/data-dock-source-option="fillFromRegistry"[^>]* checked/);
+    await el('dock').onchange({target:{dataset:{dockSourceOption:'fillFromRegistry'},checked:false}}); await tick();
+    assert.deepEqual(calls.filter(c=>c.body).pop().body,{action:'fillFromRegistry',on:false});
+    assert.equal(sandbox.dockData.fillFromRegistry,false);
     const source={slug:'in-hdmi1',label:'HDMI 1',appId:'source:13'};
     assert.match(sandbox.previewMarkup({entries:[source],useSourceImages:false}),/slug=in-hdmi1&images=0/);
     assert.match(sandbox.previewMarkup({entries:[source],useSourceImages:true}),/slug=in-hdmi1&images=1/,'source artwork choice invalidates the preview image cache');

@@ -292,6 +292,19 @@ function fixture(options) {
     await migrated.writeCatalog();
     assert.equal(JSON.parse(fs.readFileSync(migrated.stateFile)).showHomeSources,true);
 
+    // Apps outside the Home row: on unless saved off, passed to the catalog, and its row origin is reported.
+    f=fixture();
+    assert.equal(f.dock.readState().fillFromRegistry,true,'on by default');
+    await f.dock.writeCatalog();
+    assert.ok(f.dock.lastCatalog && 'rowFrom' in f.dock.lastCatalog,'the status knows where the row came from');
+    await assert.rejects(f.dock.setSourceOption('fillFromRegistry','no'),/Invalid source option/);
+    await f.dock.setSourceOption('fillFromRegistry',false);
+    assert.equal(f.dock.readState().fillFromRegistry,false);
+    assert.equal((await f.dock.statusNow()).fillFromRegistry,false);
+    assert.equal(new Dock({execute:f.dock.execute,dir:f.dock.dir,stateFile:f.dock.stateFile,appsFile:f.dock.appsFile}).readState().fillFromRegistry,false,'kept across restarts');
+    await f.dock.setSourceOption('fillFromRegistry',true);
+    assert.equal(f.dock.readState().fillFromRegistry,true);
+
     // Both choices are independent and remain explicit across restarts.
     f=fixture();
     assert.equal(f.dock.readState().useSourceImages,false);
