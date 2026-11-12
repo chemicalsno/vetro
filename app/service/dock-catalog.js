@@ -17,6 +17,7 @@ var TRAILING_TABS_RE = /\t+$/;
 //   - the package icons        /opt/dbspace/.pkgmgr_parser.db     (sideloaded apps, TV Plus)
 //   - the disabled apps        /opt/dbspace/.pkgmgr_parser.db     (app_disable: Samsung's Home can still list them, but
 //                                                                  they do not start, so they get no tile)
+//   - the installed apps       /opt/dbspace/.pkgmgr_parser.db     (the registry can keep an app after it is uninstalled)
 // Everything is read in one shell call. The result is a tab-separated list for the dock
 // (dock/src/Core/Catalog.cs): slug, label, app id, fallback, icon file. The dock rounds the
 // icons itself; this module never touches an image.
@@ -72,6 +73,7 @@ function script() {
         'for d in ' + ICON_ROOT + '*/; do id=$(basename "$d"); for s in ' + sizes + '; do',
         '  if [ -f "$d$s.png" ]; then echo "I|$id|$d$s.png"; break; fi; done; done',
         'sqlite3 -readonly /opt/dbspace/.pkgmgr_parser.db "SELECT \'D|\'||hex(app_id) FROM package_app_info WHERE app_disable=\'true\';" 2>/dev/null',
+        'for d in /opt/dbspace/.pkgmgr_parser.db /opt/dbspace/user/*/.pkgmgr_parser.db; do [ -f "$d" ] && sqlite3 -readonly "$d" "SELECT \'A|\'||hex(app_id) FROM package_app_info;" 2>/dev/null; done',
         'sqlite3 -readonly /opt/dbspace/.pkgmgr_parser.db "SELECT \'P|\'||hex(a.app_id)||\'|\'||hex(l.app_icon) FROM package_app_info a JOIN package_app_localized_info l ON l.app_id=a.app_id WHERE l.app_icon != \'\';" 2>/dev/null',
         '[ -d /usr/apps/' + COBA_HOME + ' ] || [ -d /opt/usr/apps/' + COBA_HOME + ' ] && echo "H|' + COBA_HOME + '"',
         'true'
@@ -87,7 +89,7 @@ function unhex(v) {
 // Splits the script's output into what each source said. Lines that do not parse are skipped:
 // one odd registry row must not leave the TV without a dock.
 function parse(text) {
-    var out = {order: [], registry: {}, icons: {}, packageIcons: {}, sources: {}, disabled: {}, homeApp: null, rowFrom: null};
+    var out = {order: [], registry: {}, icons: {}, packageIcons: {}, sources: {}, disabled: {}, installed: {}, homeApp: null, rowFrom: null};
     String(text || '').split('\n').forEach(function (line) {
         line = line.replace(CR_END_RE, '');
         var f = line.split('|');
@@ -109,6 +111,8 @@ function parse(text) {
                 if (iconOk(icon) && !out.packageIcons[id]) out.packageIcons[id] = icon;
             } else if (f[0] === 'D' && f.length === 2) {
                 out.disabled[unhex(f[1])] = true;
+            } else if (f[0] === 'A' && f.length === 2) {
+                out.installed[unhex(f[1])] = true;
             } else if (f[0] === 'H' && f.length === 2) {
                 if (f[1].trim() === COBA_HOME) out.homeApp = COBA_HOME;
             }
@@ -199,12 +203,14 @@ function build(parsed, options) {
     });
     // Without a csfs row (the 2022 Home), the row above is at best the "recent" strip: every other visible
     // app of the registry follows, by title, so the dock shows the same apps as the Home's app list.
+    // An app the registry still lists after it was uninstalled is left out. If the installed list is empty, the package
+    // database could not be read, so every registry app counts as installed.
     if (parsed.rowFrom !== 'csfs') {
-        var present = {}, inOrder = {};
+        var present = {}, inOrder = {}, installed = parsed.installed || {}, checkInstalled = Object.keys(installed).length > 0;
         entries.forEach(function (e) { present[e.appId] = true; });
         parsed.order.forEach(function (item) { if (item.indexOf('d/webapp@') === 0) inOrder[item.slice(9)] = true; });
         Object.keys(parsed.registry).filter(function (id) { return !inOrder[id]; }).map(function (id) { return {id: id, reg: parsed.registry[id]}; })
-            .filter(function (x) { return !x.reg.hidden && !disabled[x.reg.appId] && APP_ID.test(x.reg.appId) && !present[x.reg.appId] && !/^vetrotvapp(\.|$)/.test(x.reg.appId); })
+            .filter(function (x) { return !x.reg.hidden && !disabled[x.reg.appId] && (!checkInstalled || installed[x.reg.appId]) && APP_ID.test(x.reg.appId) && !present[x.reg.appId] && !/^vetrotvapp(\.|$)/.test(x.reg.appId); })
             .sort(function (a, b) { return a.reg.title.localeCompare(b.reg.title); })
             .forEach(function (x) {
                 if (entries.length >= MAX_ENTRIES - SYSTEM_ROWS.length) { skipped.push({item: x.reg.appId, reason: 'The dock holds ' + MAX_ENTRIES + ' entries'}); return; }

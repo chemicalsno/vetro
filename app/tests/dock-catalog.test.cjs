@@ -165,6 +165,20 @@ assert.equal(catalog.parse('H|bad;command').homeApp, null);
     assert.deepEqual(catalog.build(media, {}).entries.map(e => e.appId), ['org.tizen.browser'], 'the registry fill-in leaves them out too');
     assert.ok(catalog.script().includes("SELECT 'D|'||hex(app_id) FROM package_app_info WHERE app_disable='true';"), 'the script reads the disabled apps');
 }
+// The registry fill-in leaves out an app the registry still lists after it was uninstalled; with no installed list it checks nothing.
+{
+    const lines = ['F|media', 'O|d/webapp@br',
+        'R|' + hex('br') + '|' + hex('Browser') + '|' + hex('org.tizen.browser') + '|0',
+        'R|' + hex('gl') + '|' + hex('Glance') + '|' + hex('HupEmjIB4I.Glance') + '|0',
+        'R|' + hex('st') + '|' + hex('SmartThings') + '|' + hex('com.samsung.tv.SmartThingsApp') + '|0'];
+    const p = catalog.parse(lines.concat(['A|' + hex('com.samsung.tv.SmartThingsApp'), 'A|nothex']).join('\n'));
+    assert.deepEqual(Object.keys(p.installed), ['com.samsung.tv.SmartThingsApp'], 'an installed line that is not hex is skipped');
+    assert.deepEqual(catalog.build(p, {}).entries.map(e => e.appId), ['org.tizen.browser', 'com.samsung.tv.SmartThingsApp'],
+        'the Home row is kept as Samsung lists it; the uninstalled app is not appended');
+    assert.deepEqual(catalog.build(catalog.parse(lines.join('\n')), {}).entries.map(e => e.appId),
+        ['org.tizen.browser', 'HupEmjIB4I.Glance', 'com.samsung.tv.SmartThingsApp'], 'no installed list: every registry app is appended');
+    assert.ok(catalog.script().includes("SELECT 'A|'||hex(app_id) FROM package_app_info;"), 'the script reads the installed apps');
+}
 // A csfs row keeps today's behaviour: nothing is appended from the registry.
 {
     const p = catalog.parse(['F|csfs', 'O|d/webapp@aaa', 'R|' + hex('aaa') + '|' + hex('Netflix') + '|' + hex('org.tizen.netflix-app') + '|0',
